@@ -1,0 +1,156 @@
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+name: Symfony keys.openpgp.org
+About | News | Usage | FAQ | Stats | Privacy
+Hagrid implements both the legacy HKP interface, as well as our native interface, VKS.
+
+Verifying Keyserver (VKS) Interface
+Hagrid has its own URL scheme to fetch, submit, and verify keys.
+
+GET /vks/v1/by-fingerprint/<FINGERPRINT>
+
+Retrieves the key with the given Fingerprint. The Fingerprint may refer to the primary key, or any subkey. Hexadecimal digits MUST be uppercase, and MUST NOT be prefixed with 0x. The returned key is ASCII Armored, and has a content-type of application/pgp-keys.
+
+GET /vks/v1/by-keyid/<KEY-ID>
+
+Retrieves the key with the given long KeyID. The KeyID may refer to the primary key, or any subkey. Hexadecimal digits MUST be uppercase, and MUST NOT be prefixed with 0x. The returned key is ASCII Armored, and has a content-type of application/pgp-keys.
+
+GET /vks/v1/by-email/<URI-ENCODED EMAIL-ADDRESS>
+
+Retrieves the key with the given Email Address. Only exact matches are accepted. Lookup by email address requires opt-in by the owner of the email address. The returned key is ASCII Armored, and has a content-type of application/pgp-keys.
+
+POST /vks/v1/upload
+
+A single key may be submitted using a POST request to /vks/v1/upload. The body of the request must be application/json. The JSON data must contain a single field keytext, which must contain the keys to submit. The value of keytext can be formatted in standard OpenPGP ASCII Armor, or base64.
+
+The returned JSON data contains the fields token, key_fpr, and status. The token field contains an opaque value, which can be used to perform request-verify requests (see below). The key_fpr field contains the fingerprint of the uploaded primary key. The status token contains a map of email addresses contained in the key, with one of the values unpublished, published, revoked, or pending, indicating the status of this email address.
+
+Example request:
+      {
+        "keytext": "<ASCII ARMORED KEY>"
+      }
+    
+Example response:
+      {
+        "key_fpr": "<FINGERPRINT>",
+        "status": {
+          "address@example.org": "unpublished"
+        },
+        "token": "..."
+      }
+    
+POST /vks/v1/request-verify
+
+A key that has been uploaded can be made discoverable by one or more of its email addresses by proving ownership of the address via a verification email. This endpoint requests verification for one or more email addresses.
+
+The body of the request must be application/json. The JSON data must include the opaque token value (obtained via /vks/v1/upload) and an addresses field, which is a list of email addresses (not full User IDs) to request verification mails for. It can optionally include a locale field, which is list of locales, ordered by preference, which to use for the verification email. The reply will be the same as for the /vks/v1/upload endpoint, with addresses marked as pending where a verification email has been sent.
+
+Example request:
+      {
+        "token": "...",
+        "addresses": [
+          "address@example.org"
+        ],
+        "locale": [ "de_CH", "de_DE" ]
+      }
+    
+Example response:
+      {
+        "key_fpr": "<FINGERPRINT>",
+        "status": {
+          "address@example.org": "pending"
+        },
+        "token": "..."
+      }
+    
+Error handling
+If a GET request fails for any reason, a suitable HTTP status code will be returned. The response will be a plaintext error message. If a key is not found, the HTTP status code will be 404.
+
+If a POST request fails for any reason, a suitable HTTP status code will be returned. The response body will be a JSON object with a single error attribute. A POST request may fail with a HTTP 503 error at any time if the server is undergoing database maintenance. Clients should handle errors gracefully for POST requests.
+
+Example response:
+      {
+        "error": "We are currently undergoing scheduled database maintenance!"
+      }
+    
+Rate Limiting
+Requests to the keys.openpgp.org API are rate limited:
+
+Requests by fingerprint or key id are limited to five requests per second. Excessive requests will fail with error 429. There is a burst window of 1000.
+Requests by email address are limited to one request per minute. Excessive requests will fail with error 429. There is a burst window of 50.
+HTTP Keyserver Protocol (HKP) Interface
+Hagrid implements a subset of the HKP protocol so that tools like GnuPG and OpenKeychain can use it without modification.
+
+GET /pks/lookup?op=get&options=mr&search=<QUERY>
+
+Returns an ASCII Armored key matching the query. Query may be:
+
+An exact email address query of the form localpart@example.org.
+A hexadecimal representation of a long KeyID (e.g., 069C0C348DD82C19, optionally prefixed by 0x). This may be a KeyID of either a primary key or a subkey.
+A hexadecimal representation of a Fingerprint (e.g., 8E8C33FA4626337976D97978069C0C348DD82C19, optionally prefixed by 0x). This may be a Fingerprint of either a primary key or a subkey.
+GET /pks/lookup?op=index&options=mr&search=<QUERY>
+
+Returns a machine-readable list of keys matching the query. Query may have the forms detailed above. Hagrid always returns either one or no keys at all.
+
+POST /pks/add
+
+Keys may be submitted using a POST request to /pks/add, the body of the request being a application/x-www-form-urlencoded query. keytext must be the keys to submit, which must be ASCII Armored. More than one key may be submitted in one request. For verification of email addresses, the /vks/v1/upload endpoint must be used instead.
+
+Rate limiting applies as for the VKS interface above.
+
+Limitations
+By design, Hagrid does not implement the full HKP protocol. The specific limitations are:
+
+No support for op=vindex.
+Only exact matches by email address, fingerprint or long key id are returned.
+All requests return either one or no keys.
+The expiration date field in op=index is left blank (discussion here).
+All parameters and options other than op and search are ignored.
+Output is always machine readable (i.e. options=mr is always assumed).
+Uploads are restricted to 1 MiB.
+All packets that aren't public keys, user IDs or signatures are filtered out.
+Background image retrieved from Subtle Patterns under CC BY-SA 3.0
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+permissions:
+  contents: read
+
+jobs:
+  symfony-tests:
+    runs-on: ubuntu-latest
+    steps:
+    #  To automatically get bug fixes and new Php versions for shivammathur/setup-php,
+    # change this to (see https://github.com/shivammathur/setup-php#bookmark-versioning):
+    # uses: shivammathur/setup-php@v2
+    - uses: shivammathur/setup-php@2cb9b829437ee246e9b3cac53555a39208ca6d28
+      with:
+        php-version: '8.0'
+    - uses: actions/checkout@v4
+    - name: Copy .env.test.local
+      run: php -r "file_exists('.env.test.local') || copy('.env.test', '.env.test.local');"
+    - name: Cache Composer packages
+      id: composer-cache
+      uses: actions/cache@v3
+      with:
+        path: vendor
+        key: ${{ runner.os }}-php-${{ hashFiles('**/composer.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-php-
+    - name: Install Dependencies
+      run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
+    - name: Create Database
+      run: |
+        mkdir -p data
+        touch data/database.sqlite
+    - name: Execute tests (Unit and Feature tests) via PHPUnit
+      env:
+        DATABASE_URL: sqlite:///%kernel.project_dir%/data/database.sqlite
+      run: vendor/bin/phpunit
